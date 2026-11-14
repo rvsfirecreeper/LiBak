@@ -1,0 +1,203 @@
+import { Button, CheckBox, LineEdit, ProgressIndicator, ScrollView, TabWidget } from "std-widgets.slint";
+
+export struct PresetItem {
+    label: string,
+    enabled: bool,
+}
+
+export component AppWindow inherits Window {
+    title: "LiBak";
+    min-width: 520px;
+    min-height: 420px;
+
+    // Status page
+    in property <string> last-backup;
+    in property <string> next-due;
+    in property <bool> paused;
+    in property <bool> busy;
+    in property <float> progress;
+    in property <string> message;
+    in-out property <bool> due-banner;
+
+    // Folders page
+    in property <[string]> folders;
+    in property <[PresetItem]> presets;
+    in property <string> exclusion-summary;
+
+    // Unlock dialog
+    in-out property <bool> unlock-open;
+    in property <string> unlock-error;
+    in property <string> unlock-purpose;
+
+    callback request-backup();
+    callback request-export();
+    callback toggle-pause();
+    callback add-folder();
+    callback remove-folder(int);
+    callback set-preset(int, bool);
+    // The password is handed over as the callback argument and the field is cleared
+    // straight away; the Rust side copies it into a zeroizing buffer.
+    callback unlock(string);
+    callback cancel-unlock();
+
+    VerticalLayout {
+        if root.due-banner: Rectangle {
+            background: #b26a00;
+            height: 40px;
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 8px;
+                Text {
+                    text: "A backup is due.";
+                    color: white;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Back up now";
+                    enabled: !root.busy;
+                    clicked => {
+                        root.due-banner = false;
+                        root.request-backup();
+                    }
+                }
+                Button {
+                    text: "Dismiss";
+                    clicked => { root.due-banner = false; }
+                }
+            }
+        }
+
+        TabWidget {
+            Tab {
+                title: "Status";
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    alignment: start;
+
+                    Text { text: "Last backup: " + root.last-backup; font-size: 16px; }
+                    Text { text: "Next backup: " + (root.paused ? "paused" : root.next-due); font-size: 16px; }
+                    if root.busy: ProgressIndicator { progress: root.progress; }
+                    if root.message != "": Text { text: root.message; wrap: word-wrap; }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Button {
+                            text: "Back up now";
+                            primary: true;
+                            enabled: !root.busy;
+                            clicked => { root.request-backup(); }
+                        }
+                        Button {
+                            text: "Export…";
+                            enabled: !root.busy;
+                            clicked => { root.request-export(); }
+                        }
+                        Button {
+                            text: root.paused ? "Resume schedule" : "Pause schedule";
+                            clicked => { root.toggle-pause(); }
+                        }
+                    }
+                }
+            }
+            Tab {
+                title: "Folders";
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+
+                    Text { text: "Folders to back up"; font-weight: 700; }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 4px;
+                            for folder[i] in root.folders: HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: folder;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                Button {
+                                    text: "Remove";
+                                    clicked => { root.remove-folder(i); }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        Button {
+                            text: "Add folder…";
+                            clicked => { root.add-folder(); }
+                        }
+                    }
+
+                    Text { text: "Skip these"; font-weight: 700; }
+                    for preset[i] in root.presets: CheckBox {
+                        text: preset.label;
+                        checked: preset.enabled;
+                        toggled => { root.set-preset(i, self.checked); }
+                    }
+                    Text { text: root.exclusion-summary; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+
+    if root.unlock-open: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #000000a0;
+
+        TouchArea { }
+
+        Rectangle {
+            width: min(parent.width - 32px, 380px);
+            height: dialog.preferred-height + 32px;
+            background: #2b2b2b;
+            border-radius: 8px;
+
+            dialog := VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+
+                Text { text: "Enter password"; font-size: 18px; font-weight: 700; color: white; }
+                Text { text: root.unlock-purpose; color: #cccccc; wrap: word-wrap; }
+                pw := LineEdit {
+                    input-type: password;
+                    placeholder-text: "Password";
+                    accepted => {
+                        root.unlock(self.text);
+                        self.text = "";
+                    }
+                }
+                if root.unlock-error != "": Text { text: root.unlock-error; color: #ff6b6b; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "Cancel";
+                        clicked => {
+                            pw.text = "";
+                            root.cancel-unlock();
+                        }
+                    }
+                    Button {
+                        text: "Unlock";
+                        primary: true;
+                        clicked => {
+                            root.unlock(pw.text);
+                            pw.text = "";
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
