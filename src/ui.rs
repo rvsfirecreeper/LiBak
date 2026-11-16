@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
-use crate::backend::{Backend, BackupError, Event, Password, Preset};
+use super::{Backend, BackupError, Event, Password, Preset};
 
 slint::include_modules!();
 
@@ -76,7 +76,9 @@ pub fn run(backend: Arc<dyn Backend>) -> Result<(), slint::PlatformError> {
             // The toolkit's own copy of the password cannot be wiped (PLAN.md section 4);
             // move it into a zeroizing buffer right away.
             let password = Password::new(entered.to_string());
-            let Some(action) = pending.lock().unwrap().clone() else { return };
+            let Some(action) = pending.lock().unwrap().clone() else {
+                return;
+            };
             let Some(ui) = weak.upgrade() else { return };
             ui.set_unlock_open(false);
             ui.set_unlock_error("".into());
@@ -226,7 +228,10 @@ fn refresh(ui: &AppWindow, backend: &dyn Backend) {
     let presets: Vec<PresetItem> = backend
         .presets()
         .into_iter()
-        .map(|(preset, enabled)| PresetItem { label: preset.label().into(), enabled })
+        .map(|(preset, enabled)| PresetItem {
+            label: preset.label().into(),
+            enabled,
+        })
         .collect();
     ui.set_presets(ModelRc::from(Rc::new(VecModel::from(presets))));
 
@@ -309,7 +314,13 @@ mod tests {
     fn last_backup_and_next_due() {
         let now = SystemTime::now();
         assert_eq!(format_last_backup(None, now), "never");
-        assert_eq!(format_last_backup(Some(now - Duration::from_secs(7200)), now), "2 hours ago");
-        assert_eq!(format_next_due(Some(now - Duration::from_secs(5)), now), "due now");
+        assert_eq!(
+            format_last_backup(Some(now - Duration::from_secs(7200)), now),
+            "2 hours ago"
+        );
+        assert_eq!(
+            format_next_due(Some(now - Duration::from_secs(5)), now),
+            "due now"
+        );
     }
 }

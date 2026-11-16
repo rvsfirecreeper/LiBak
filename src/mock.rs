@@ -7,9 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use crate::backend::{
-    Backend, BackupError, Event, ExclusionSummary, Password, Preset, Status,
-};
+use super::{Backend, BackupError, Event, ExclusionSummary, Password, Preset, Status};
 
 const DUE_FIRST: Duration = Duration::from_secs(10);
 const DUE_EVERY: Duration = Duration::from_secs(60);
@@ -28,11 +26,16 @@ pub struct MockBackend {
 
 impl MockBackend {
     pub fn new() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         let state = Arc::new(Mutex::new(State {
             status: Status::default(),
             folders: vec![home.join("Documents")],
-            presets: Preset::ALL.iter().map(|&p| (p, p != Preset::Gaming)).collect(),
+            presets: Preset::ALL
+                .iter()
+                .map(|&p| (p, p != Preset::Gaming))
+                .collect(),
             subscribers: Vec::new(),
             picked: 0,
         }));
@@ -56,7 +59,8 @@ impl MockBackend {
 
     fn notify(&self) {
         let mut s = self.state.lock().unwrap();
-        s.subscribers.retain(|tx| tx.send(Event::StatusChanged).is_ok());
+        s.subscribers
+            .retain(|tx| tx.send(Event::StatusChanged).is_ok());
     }
 
     fn fake_run(&self, password: &Password, progress: &dyn Fn(f32)) -> Result<(), BackupError> {
@@ -105,7 +109,9 @@ impl Backend for MockBackend {
     fn pick_folder(&self) -> Option<PathBuf> {
         let mut s = self.state.lock().unwrap();
         s.picked += 1;
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         Some(home.join(format!("Mock-folder-{}", s.picked)))
     }
 
@@ -123,7 +129,10 @@ impl Backend for MockBackend {
     fn exclusion_summary(&self) -> ExclusionSummary {
         let s = self.state.lock().unwrap();
         let on = s.presets.iter().filter(|(_, e)| *e).count() as u64;
-        ExclusionSummary { items: on * 1_200, bytes: on * 3_400_000_000 }
+        ExclusionSummary {
+            items: on * 1_200,
+            bytes: on * 3_400_000_000,
+        }
     }
 
     fn subscribe(&self, events: Sender<Event>) {
