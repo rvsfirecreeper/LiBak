@@ -1,14 +1,16 @@
 use super::Error;
 use crate::Key;
-use aes_gcm::{AeadInOut, Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::{AeadInOut, Aes256Gcm, KeyInit};
 use fastcdc::v2020::StreamCDC;
 use std::{
     fs::{self, File},
     path::Path,
 };
 type Id = [u8; 32];
+
 #[derive(Zeroize, ZeroizeOnDrop)]
 struct ProcessedChunk {
+    nonce: [u8; 12],
     id: Id,
     data: Zeroizing<Vec<u8>>,
 }
@@ -44,7 +46,8 @@ fn process_file(file: &File, key: &Key, store_hashes: &[[u8; 32]]) -> Result<Pro
     };
     let cipher = Aes256Gcm::new(&aes_gcm::Key::<Aes256Gcm>::from(key.0));
     for chunk in chunker {
-        let nonce = Nonce::from(rand::random::<[u8; 12]>());
+        let nonce_internal = rand::random::<[u8; 12]>();
+        let nonce = aes_gcm::Nonce::from(nonce_internal);
         let data_copy = Zeroizing::new(chunk?.data);
         let id = *blake3::keyed_hash(&key.0, &data_copy).as_bytes();
         let is_new = !store_hashes.contains(&id) && !final_file.manifest.contains(&id);
@@ -59,6 +62,7 @@ fn process_file(file: &File, key: &Key, store_hashes: &[[u8; 32]]) -> Result<Pro
             )?;
             cipher.encrypt_in_place(&nonce, &id, &mut *compressed)?;
             final_file.chunks.push(ProcessedChunk {
+                nonce: nonce_internal,
                 id,
                 data: compressed,
             });
