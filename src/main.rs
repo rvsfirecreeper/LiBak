@@ -10,7 +10,7 @@ pub enum Error {
     Io(std::io::Error),
     /// The file or folder simply does not exist.
     NonExistent,
-    /// Error in FastCDC StreamCDC
+    /// Error in `FastCDC`'s `StreamCDC`
     ContentDefinedChunking(fastcdc::v2020::Error),
     /// Opaque Cryptographic or Otherwise Error
     CryptoError,
