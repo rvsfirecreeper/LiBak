@@ -4,7 +4,7 @@ use aes_gcm::{AeadInOut, Aes256Gcm, KeyInit};
 use fastcdc::v2020::StreamCDC;
 use std::{
     fs::{self, File},
-    path::Path,
+    path::{Path, PathBuf},
 };
 type Id = [u8; 32];
 
@@ -19,21 +19,45 @@ struct ProcessedFile {
     chunks: Vec<ProcessedChunk>,
     manifest: Vec<Id>,
 }
+enum ScanResult {
+    Normal(PathBuf),
+    /// THE FIRST ONE IS THE SYMLINK'S PATH AND SECOND IS TARGET
+    Symlink(PathBuf, PathBuf),
+}
+enum Manifest {
+    File {
+        path: PathBuf,
+        chunks: Vec<Id>,
+    },
+    Directory {
+        path: PathBuf,
+        content: Vec<Manifest>,
+    },
+    Symlink {
+        path: PathBuf,
+        target: PathBuf,
+    },
+}
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
-fn scan(path: &Path, exclude: &[&Path]) -> Result<Vec<File>, Error> {
+fn scan(path: &Path, exclude: &[&Path]) -> Result<Vec<ScanResult>, Error> {
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Ok(vec![ScanResult::Symlink(
+            path.to_owned(),
+            fs::read_link(path)?,
+        )]);
+    }
     if !path.try_exists()? {
         return Err(Error::NonExistent);
     }
     let mut files = vec![];
-    if path.is_dir() {
-        for dir_entry in fs::read_dir(path)? {
-            let dir_entry = dir_entry?;
-            if !exclude.iter().any(|i| *i == dir_entry.path().as_path()) {
-                files.push(File::open(dir_entry.path())?);
+    if !exclude.contains(&path) {
+        if path.is_dir() {
+            for dir_entry in fs::read_dir(path)? {
+                files.append(&mut scan(dir_entry?.path().as_path(), exclude)?);
             }
+        } else {
+            files.push(ScanResult::Normal(path.to_owned()));
         }
-    } else if !exclude.contains(&path) {
-        files.push(File::open(path)?);
     }
 
     Ok(files)
