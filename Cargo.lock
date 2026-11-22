@@ -2607,9 +2607,11 @@ dependencies = [
  "aes-gcm",
  "blake3",
  "fastcdc",
+ "hex",
  "rand",
  "slint",
  "slint-build",
+ "tempfile",
  "zeroize",
  "zstd",
 ]
