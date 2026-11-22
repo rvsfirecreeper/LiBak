@@ -5,6 +5,7 @@ use crate::{
 };
 use aes_gcm::{AeadInOut, Aes256Gcm, KeyInit};
 use fastcdc::v2020::StreamCDC;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
@@ -43,7 +44,7 @@ enum ScanResult {
     /// THE FIRST ONE IS THE SYMLINK'S PATH AND SECOND IS TARGET
     Symlink(PathBuf, PathBuf, SymlinkType),
 }
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 enum Manifest {
     File {
         path: PathBuf,
@@ -60,7 +61,7 @@ enum Manifest {
     },
 }
 // thanks, Windows
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 enum SymlinkType {
     Folder,
     File,
@@ -382,5 +383,6 @@ fn restore(
     }
     Ok(())
 }
+fn write_manifests(manifests: &[Manifest]) -> Result<(), Error> {}
 #[cfg(test)]
 mod tests;
