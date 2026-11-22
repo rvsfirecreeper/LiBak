@@ -383,6 +383,27 @@ fn restore(
     }
     Ok(())
 }
-fn write_manifests(manifests: &[Manifest]) -> Result<(), Error> {}
+fn write_manifests(manifests: &[Manifest], key: &Key) -> Result<(), Error> {
+    for manifest in manifests {
+        let manifile = File::create(id_to_name(
+            blake3::keyed_hash(
+                &key.0,
+                match manifest {
+                    Manifest::Directory { path, content: _ }
+                    | Manifest::File { path, chunks: _ }
+                    | Manifest::Symlink {
+                        path,
+                        target: _,
+                        symlink_type: _,
+                    } => path.as_os_str().as_encoded_bytes(),
+                },
+            )
+            .as_bytes(),
+        ))?;
+        ciborium::into_writer(manifest, manifile)
+            .map_err(|_| Error::Io(std::io::Error::other("ciborium")))?;
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests;
