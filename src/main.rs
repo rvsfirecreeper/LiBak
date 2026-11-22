@@ -6,6 +6,7 @@ slint::include_modules!();
 mod backend;
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Key([u8; 32]);
+pub type BackupId = [u8; 32];
 #[cfg_attr(test, derive(Debug))]
 pub enum Error {
     /// Random Error in IO
@@ -22,10 +23,19 @@ pub enum Error {
     InvalidHash,
     /// What how did you get this why are you reading this anyway this is impossible(should be)
     InvariantsFailed,
+    /// Why do you not have a home directory
+    Homeless,
+    /// Postcard serialization error
+    Postcard(postcard::Error),
 }
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::Io(value)
+    }
+}
+impl From<postcard::Error> for Error {
+    fn from(value: postcard::Error) -> Self {
+        Self::Postcard(value)
     }
 }
 impl From<fastcdc::v2020::Error> for Error {
@@ -33,8 +43,8 @@ impl From<fastcdc::v2020::Error> for Error {
         Self::ContentDefinedChunking(value)
     }
 }
-impl From<aes_gcm::Error> for Error {
-    fn from(_: aes_gcm::Error) -> Self {
+impl From<chacha20poly1305::Error> for Error {
+    fn from(_: chacha20poly1305::Error) -> Self {
         Self::CryptoError
     }
 }
