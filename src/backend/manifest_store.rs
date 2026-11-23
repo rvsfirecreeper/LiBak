@@ -18,7 +18,7 @@ pub(super) fn write_manifests(
     dir_checkup()?;
     let bak_id_hex = id_to_name(&backup_id);
     let manifest_dir = dirs::data_local_dir()
-        .ok_or(Error::Homeless)?
+        .ok_or(Error::NoDataDir)?
         .join(PathBuf::from_str("libak/manifests").expect("Infallible"))
         .join(bak_id_hex);
     fs::create_dir(&manifest_dir)?;
@@ -46,9 +46,7 @@ pub(super) fn write_manifests(
         aad.extend_from_slice(&(i as u64).to_le_bytes());
         let mut serialized_manifest = Zeroizing::new(Vec::with_capacity(size));
         let nonce_internal: [u8; 24] = random();
-        for _ in 16..size {
-            serialized_manifest.push(0u8);
-        }
+        serialized_manifest.extend(std::iter::repeat_n(0, size - 16));
         postcard::to_slice(manifest, &mut serialized_manifest)?;
         let cipher = XChaCha20Poly1305::new(&chacha20poly1305::Key::from(key.0));
         cipher.encrypt_in_place(
@@ -65,7 +63,7 @@ pub(super) fn write_manifests(
 }
 pub(super) fn read_manifests(backup_id: &OsStr, key: &Key) -> Result<Vec<Manifest>, Error> {
     let manifest_dir = dirs::data_local_dir()
-        .ok_or(Error::Homeless)?
+        .ok_or(Error::NoDataDir)?
         .join(PathBuf::from_str("libak/manifests").expect("Infallible"))
         .join(backup_id);
     let mut manifests_indexed = Vec::new();
@@ -100,16 +98,22 @@ pub(super) fn read_manifests(backup_id: &OsStr, key: &Key) -> Result<Vec<Manifes
 }
 pub(super) fn dir_checkup() -> Result<(), Error> {
     let manifest_dir = dirs::data_local_dir()
-        .ok_or(Error::Homeless)?
+        .ok_or(Error::NoDataDir)?
         .join(PathBuf::from_str("libak/manifests").expect("Infallible"));
     if !fs::exists(&manifest_dir)? {
         fs::create_dir_all(manifest_dir)?;
     }
     let chunk_dir = dirs::data_local_dir()
-        .ok_or(Error::Homeless)?
+        .ok_or(Error::NoDataDir)?
         .join(PathBuf::from_str("libak/chunks").expect("Infallible"));
     if !fs::exists(&chunk_dir)? {
         fs::create_dir_all(chunk_dir)?;
+    }
+    let meta_dir = dirs::data_local_dir()
+        .ok_or(Error::NoDataDir)?
+        .join(PathBuf::from_str("libak/meta").expect("Infallible"));
+    if !fs::exists(&meta_dir)? {
+        fs::create_dir_all(meta_dir)?;
     }
     Ok(())
 }

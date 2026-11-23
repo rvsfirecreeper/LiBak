@@ -5,6 +5,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+argon2 = "0.6.0"
 blake3 = "1.8.7"
 chacha20poly1305 = "0.11.0"
 dirs = "7.0.0"

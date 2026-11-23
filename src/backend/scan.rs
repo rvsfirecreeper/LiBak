@@ -23,6 +23,12 @@ pub(super) fn scan(root: &Path, path: &Path, exclude: &[&Path]) -> Result<Vec<Sc
         )]);
     }
     let mut files = vec![];
+    {
+        let meta = path.metadata()?;
+        if !(meta.is_dir() || meta.is_file() || meta.is_symlink()) {
+            return Ok(files);
+        }
+    }
     if path.is_dir() {
         files.push(ScanResult::Folder(
             path.strip_prefix(root)

@@ -7,7 +7,7 @@
     in {
       devShells.x86_64-linux.default = pkgs.mkShell {
         nativeBuildInputs = [ pkgs.pkg-config ];
-        buildInputs = [ pkgs.fontconfig pkgs.freetype ];
+        buildInputs = [ pkgs.fontconfig pkgs.freetype pkgs.ripgrep ];
       };
     };
 }

@@ -1,15 +1,27 @@
+use chacha20poly1305::{AeadInOut, KeyInit, XChaCha20Poly1305, XNonce};
+use rand::random;
+
 use super::{
     chunking::process_file,
     scan::scan,
     types::{Manifest, ScanResult, id_to_name, name_to_id},
 };
-use crate::{Error, Key};
+use crate::{
+    BackupId, BackupMetadata,
+    Error::{self, InvariantsFailed},
+    Key,
+    backend::{
+        manifest_store::{dir_checkup, write_manifests},
+        pass_to_key,
+    },
+};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
     str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
 };
 pub(super) fn backup(
     root: &Path,
@@ -155,4 +167,59 @@ pub(super) fn backup(
         }
     }
     Ok(manifests)
+}
+pub(crate) fn full_backup(
+    passwd: &str,
+    root: &Path,
+    name: &str,
+    exclude: &[&Path],
+) -> Result<BackupId, Error> {
+    dir_checkup()?;
+    let mut new_exclude = Vec::new();
+    let libak_path = dirs::data_local_dir()
+        .ok_or(Error::NoDataDir)?
+        .join("libak");
+    new_exclude.extend_from_slice(exclude);
+    new_exclude.push(&libak_path);
+    let (key, salt) = pass_to_key(passwd, None)?;
+    let manifests = backup(root, &key, &new_exclude, &libak_path.join("chunks"))?;
+    let backup_id = random();
+    write_manifests(&manifests, backup_id, &key)?;
+    fs::create_dir(libak_path.join("meta").join(id_to_name(&backup_id)))?;
+    let mut meta_file = File::create(
+        libak_path
+            .join("meta")
+            .join(id_to_name(&backup_id))
+            .join("meta"),
+    )?;
+    let metadata = BackupMetadata {
+        time: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| /* 1970 was a while back */ InvariantsFailed)?,
+        name: name.to_string(),
+        salt,
+    };
+    let size = postcard::serialize_with_flavor::<BackupMetadata, postcard::ser_flavors::Size, usize>(
+        &metadata,
+        postcard::ser_flavors::Size::default(),
+    )?;
+    let mut data = Vec::with_capacity(size);
+    data.extend(std::iter::repeat_n(0, size));
+    postcard::to_slice(&metadata, data.as_mut_slice())?;
+    meta_file.write_all(&data)?;
+    let mut passwd_check_file = File::create(
+        dirs::data_local_dir()
+            .ok_or(Error::NoDataDir)?
+            .join("libak")
+            .join("meta")
+            .join(id_to_name(&backup_id))
+            .join("test"),
+    )?;
+    let nonce_internal: [u8; 24] = random();
+    let cipher = XChaCha20Poly1305::new(&chacha20poly1305::Key::from(key.0));
+    let mut test = Vec::from(super::PASS_TEST_CONTENTS);
+    cipher.encrypt_in_place(&XNonce::from(nonce_internal), &[], &mut test)?;
+    passwd_check_file.write_all(&nonce_internal)?;
+    passwd_check_file.write_all(&test)?;
+    Ok(backup_id)
 }

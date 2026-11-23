@@ -1,10 +1,16 @@
-use super::types::{Manifest, id_to_name};
 #[cfg(windows)]
 use super::types::SymlinkType;
-use crate::{Error, Error::CryptoError, Key};
+use super::types::{Manifest, id_to_name};
+use crate::{
+    BackupId, BackupMetadata,
+    Error::{self, CryptoError},
+    Key,
+    backend::{manifest_store::read_manifests, pass_to_key, passwd},
+};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::AeadInOut};
 use std::{
-    fs::{self, File},
+    ffi::OsStr,
+    fs::{self, File, read_dir},
     io::{Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
@@ -27,6 +33,10 @@ pub(super) fn restore(
                     ))?;
                     let mut chunk_data = Zeroizing::new(Vec::new());
                     chunk_file.read_to_end(&mut chunk_data)?;
+                    if chunk_data.len() < 24 {
+                        // also tampering or corruption
+                        return Err(Error::CryptoError);
+                    }
                     let nonce_internal: [u8; 24] = chunk_data[0..24]
                         .try_into()
                         .map_err(|_| Error::InvariantsFailed)?;
@@ -36,7 +46,7 @@ pub(super) fn restore(
                     cipher.decrypt_in_place(&nonce, chunk, &mut *chunk_data)?;
                     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                     let mut decompressed_chunk =
-                        zstd::bulk::decompress(chunk_data.as_slice(), 65536)?;
+                        zstd::bulk::decompress(chunk_data.as_slice(), 1024 * 1024 * 8)?;
                     target_file.write_all(&decompressed_chunk)?;
                     decompressed_chunk.zeroize();
                 }
@@ -77,6 +87,7 @@ pub(super) fn restore(
             }
         }
     }
+    let mut absent_root = true;
     for dir in &mut to_check {
         match dir {
             Manifest::File { path: _, chunks: _ }
@@ -86,6 +97,9 @@ pub(super) fn restore(
                 symlink_type: _,
             } => panic!("What"),
             Manifest::Directory { path, content } => {
+                if path.is_empty() {
+                    absent_root = false;
+                }
                 let num_entries = content.len();
                 let mut num_files = 0;
                 let dir_entries = fs::read_dir(target_dir.join(&path))?;
@@ -95,7 +109,7 @@ pub(super) fn restore(
                         i?.path().file_name().expect("how would ReadDir return .."),
                     ));
                 }
-                if (!content.is_empty()) || (num_entries != num_files) {
+                if (!content.is_empty()) || absent_root || (num_entries != num_files) {
                     // TAMPERING
                     return Err(CryptoError);
                 }
@@ -103,4 +117,40 @@ pub(super) fn restore(
         }
     }
     Ok(())
+}
+// holy pokemon reference
+pub(crate) fn full_restore(
+    passwd: &str,
+    backup_id: &OsStr,
+    target_dir: &Path,
+) -> Result<(), Error> {
+    if read_dir(target_dir)?.next().is_some() {
+        return Err(Error::TargetNotEmpty);
+    }
+    let meta_dir = &dirs::data_local_dir()
+        .ok_or(Error::NoDataDir)?
+        .join("libak/meta")
+        .join(backup_id);
+    let mut meta_file = File::open(meta_dir.join("meta"))?;
+    let mut metadata_vec = Vec::new();
+    meta_file.read_to_end(&mut metadata_vec)?;
+    let metadata = postcard::from_bytes::<BackupMetadata>(&metadata_vec)?;
+    let (key, _) = pass_to_key(passwd, Some(metadata.salt))?;
+    let mut pass_test_file = File::open(meta_dir.join("test"))?;
+    let mut pass_test_vec = Vec::new();
+    let mut nonce_internal = [0u8; 24];
+    pass_test_file.read_exact(&mut nonce_internal)?;
+    pass_test_file.read_to_end(&mut pass_test_vec)?;
+    let cipher = XChaCha20Poly1305::new(&chacha20poly1305::Key::from(key.0));
+    cipher.decrypt_in_place(&XNonce::from(nonce_internal), &[], &mut pass_test_vec)?;
+
+    let manifests = read_manifests(backup_id, &key)?;
+    restore(
+        &manifests,
+        &dirs::data_local_dir()
+            .ok_or(Error::NoDataDir)?
+            .join(PathBuf::from_str("libak/chunks").expect("Infallible")),
+        target_dir,
+        &key,
+    )
 }

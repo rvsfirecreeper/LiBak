@@ -9,7 +9,7 @@ pub(super) fn process_file(
     key: &Key,
     store_hashes: &HashSet<[u8; 32]>,
 ) -> Result<ProcessedFile, Error> {
-    let chunker = StreamCDC::new(file, 4096, 16384, 65536);
+    let chunker = StreamCDC::new(file, 1024 * 512, 1024 * 1024 * 2, 1024 * 1024 * 8);
     let mut final_file = ProcessedFile {
         chunks: vec![],
         manifest: vec![],
@@ -25,7 +25,7 @@ pub(super) fn process_file(
         final_file.manifest.push(id);
         if is_new {
             seen_chunks.insert(id);
-            let mut compressed = Zeroizing::new(Vec::with_capacity(data_copy.len() + 304));
+            let mut compressed = Zeroizing::new(Vec::with_capacity(data_copy.len() + 32768 + 16));
             zstd::stream::compress_sized_into(
                 data_copy.as_slice(),
                 &mut *compressed,
