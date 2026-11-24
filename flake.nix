@@ -5,7 +5,8 @@
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       # winit/Slint dlopen these at runtime, so linking against them isn't enough:
-      # they have to be on LD_LIBRARY_PATH too.
+      # they have to be findable at runtime too (LD_LIBRARY_PATH in the dev shell,
+      # RUNPATH in the packaged binary).
       runtimeLibs = with pkgs; [
         wayland
         libxkbcommon
@@ -19,6 +20,28 @@
         libxi
       ];
     in {
+      packages.x86_64-linux.default = pkgs.rustPlatform.buildRustPackage {
+        pname = "libak";
+        version = "0.1.0";
+        src = self;
+        cargoLock.lockFile = ./Cargo.lock;
+
+        nativeBuildInputs = [ pkgs.pkg-config pkgs.patchelf ];
+        # fontconfig/freetype/zstd are linked; the rest are only dlopen'ed (see runtimeLibs).
+        buildInputs = runtimeLibs ++ [ pkgs.zstd ];
+
+        postFixup = ''
+          patchelf --add-rpath "${pkgs.lib.makeLibraryPath runtimeLibs}:/run/opengl-driver/lib" \
+            $out/bin/libak
+        '';
+
+        meta = {
+          description = "Encrypted, deduplicating backup tool";
+          license = pkgs.lib.licenses.gpl3Plus;
+          mainProgram = "libak";
+        };
+      };
+
       devShells.x86_64-linux.default = pkgs.mkShell {
         nativeBuildInputs = [ pkgs.pkg-config ];
         buildInputs = runtimeLibs ++ [ pkgs.ripgrep ];
