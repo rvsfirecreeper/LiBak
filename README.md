@@ -14,3 +14,10 @@ How it works:
 * FastCDC, killing two birds with one stone as chunks create easy deduplication and prevent whole files being re-encrypted
 * zstd compression
 * Slint(the Claude UI in question)
+
+## Installation
+
+Linux: use Nix.
+simply [install Nix](nixos.org/download) and run nix run github:rvsfirecreeper/libak
+MacOS and windows: download the binary from releases page
+that's it.
