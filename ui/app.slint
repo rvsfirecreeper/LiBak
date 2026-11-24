@@ -1,202 +1,406 @@
-import { Button, CheckBox, LineEdit, ProgressIndicator, ScrollView, TabWidget } from "std-widgets.slint";
+import { LineEdit, ListView, Palette, ProgressIndicator } from "std-widgets.slint";
+// Bundled so the UI looks the same everywhere (SIL OFL 1.1, see fonts/OFL.txt).
+import "fonts/GoogleSans-Regular.ttf";
+import "fonts/GoogleSans-Bold.ttf";
 
-export struct PresetItem {
-    label: string,
-    enabled: bool,
+export struct BackupItem {
+    name: string,
+    time: string,
+    id: string,
+}
+
+global Theme {
+    out property <color> accent: #4f46e5;
+    out property <color> accent-hover: #4338ca;
+    out property <color> accent-pressed: #3730a3;
+    out property <color> accent-soft: #4f46e51c;
+    out property <color> page: #f3f5fb;
+    out property <color> card: #ffffff;
+    out property <color> text: #1f2430;
+    out property <color> muted: #6b7280;
+    out property <color> disabled: #c4c7d8;
+    out property <color> ok-bg: #dcfce7;
+    out property <color> ok-fg: #166534;
+    out property <color> err-bg: #fee2e2;
+    out property <color> err-fg: #991b1b;
+    out property <brush> header: @linear-gradient(100deg, #4f46e5 0%, #7c3aed 50%, #06b6d4 100%);
+}
+
+component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 40px;
+    min-width: 120px;
+    border-radius: 10px;
+    background: !root.enabled ? Theme.disabled
+        : ta.pressed ? Theme.accent-pressed
+        : ta.has-hover ? Theme.accent-hover
+        : Theme.accent;
+    animate background { duration: 120ms; }
+
+    Text {
+        text: root.text;
+        color: white;
+        font-weight: 700;
+        font-size: 14px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+component SoftButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 32px;
+    min-width: 72px;
+    border-radius: 8px;
+    background: !root.enabled ? transparent
+        : ta.pressed ? #4f46e533
+        : ta.has-hover ? Theme.accent-soft
+        : transparent;
+    animate background { duration: 120ms; }
+
+    Text {
+        text: root.text;
+        color: root.enabled ? Theme.accent : Theme.disabled;
+        font-weight: 700;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+component TabPill inherits Rectangle {
+    in property <string> text;
+    in property <bool> active;
+    callback clicked();
+
+    height: 34px;
+    min-width: 96px;
+    border-radius: 17px;
+    background: root.active ? #ffffff
+        : ta.has-hover ? #ffffff33
+        : #ffffff1f;
+    animate background { duration: 120ms; }
+
+    Text {
+        text: root.text;
+        color: root.active ? Theme.accent : white;
+        font-weight: 700;
+        font-size: 14px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component Label inherits Text {
+    color: Theme.text;
+    font-weight: 700;
+    font-size: 13px;
+}
+
+component Hint inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    wrap: word-wrap;
 }
 
 export component AppWindow inherits Window {
     title: "LiBak";
+    default-font-family: "Google Sans";
+    background: Theme.page;
     min-width: 520px;
-    min-height: 420px;
+    min-height: 640px;
 
-    // Status page
-    in property <string> last-backup;
-    in property <string> next-due;
-    in property <bool> paused;
+    // The theme is built for a light surface, so keep the standard widgets
+    // (text fields, lists) on their light variant instead of following the system.
+    init => { Palette.color-scheme = ColorScheme.light; }
+
+    // Shared state
     in property <bool> busy;
-    in property <float> progress;
     in property <string> message;
-    in-out property <bool> due-banner;
+    in property <bool> message-is-error;
+    in-out property <int> page: 0;
 
-    // Folders page
-    in property <[string]> folders;
-    in property <[PresetItem]> presets;
-    in property <string> exclusion-summary;
+    // Backup page: paths to skip (a folder skips everything inside it)
+    in property <[string]> exclusions;
+    callback add-exclusion(string);
+    callback remove-exclusion(int);
 
-    // Unlock dialog
-    in-out property <bool> unlock-open;
-    in property <string> unlock-error;
-    in property <string> unlock-purpose;
+    // Restore page
+    in property <[BackupItem]> backups;
+    in-out property <int> selected: -1;
 
-    callback request-backup();
-    callback request-export();
-    callback toggle-pause();
-    callback add-folder();
-    callback remove-folder(int);
-    callback set-preset(int, bool);
-    // The password is handed over as the callback argument and the field is cleared
-    // straight away; the Rust side copies it into a zeroizing buffer.
-    callback unlock(string);
-    callback cancel-unlock();
+    // Passwords are handed over as callback arguments and the field is cleared
+    // straight away; the Rust side copies them into a zeroizing buffer.
+    callback start-backup(string, string, string);
+    callback start-restore(int, string, string);
+    callback refresh-backups();
 
     VerticalLayout {
-        if root.due-banner: Rectangle {
-            background: #b26a00;
-            height: 40px;
+        // Header
+        Rectangle {
+            height: 84px;
+            background: Theme.header;
             HorizontalLayout {
-                padding: 8px;
-                spacing: 8px;
-                Text {
-                    text: "A backup is due.";
-                    color: white;
-                    vertical-alignment: center;
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 10px;
+                VerticalLayout {
+                    alignment: center;
                     horizontal-stretch: 1;
-                }
-                Button {
-                    text: "Back up now";
-                    enabled: !root.busy;
-                    clicked => {
-                        root.due-banner = false;
-                        root.request-backup();
+                    Text {
+                        text: "LiBak";
+                        color: white;
+                        font-size: 26px;
+                        font-weight: 700;
+                    }
+                    Text {
+                        text: "Encrypted backups";
+                        color: #ffffffd9;
+                        font-size: 13px;
                     }
                 }
-                Button {
-                    text: "Dismiss";
-                    clicked => { root.due-banner = false; }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        TabPill {
+                            text: "Back up";
+                            active: root.page == 0;
+                            clicked => { root.page = 0; }
+                        }
+                        TabPill {
+                            text: "Restore";
+                            active: root.page == 1;
+                            clicked => { root.page = 1; }
+                        }
+                    }
                 }
             }
         }
 
-        TabWidget {
-            Tab {
-                title: "Status";
-                VerticalLayout {
-                    padding: 16px;
-                    spacing: 12px;
-                    alignment: start;
+        // Page card
+        Rectangle {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 16px;
+                Rectangle {
+                    background: Theme.card;
+                    border-radius: 14px;
+                    drop-shadow-blur: 14px;
+                    drop-shadow-color: #1f243020;
+                    drop-shadow-offset-y: 3px;
 
-                    Text { text: "Last backup: " + root.last-backup; font-size: 16px; }
-                    Text { text: "Next backup: " + (root.paused ? "paused" : root.next-due); font-size: 16px; }
-                    if root.busy: ProgressIndicator { progress: root.progress; }
-                    if root.message != "": Text { text: root.message; wrap: word-wrap; }
-
-                    HorizontalLayout {
+                    if root.page == 0: VerticalLayout {
+                        padding: 20px;
                         spacing: 8px;
                         alignment: start;
-                        Button {
-                            text: "Back up now";
-                            primary: true;
-                            enabled: !root.busy;
-                            clicked => { root.request-backup(); }
-                        }
-                        Button {
-                            text: "Export…";
-                            enabled: !root.busy;
-                            clicked => { root.request-export(); }
-                        }
-                        Button {
-                            text: root.paused ? "Resume schedule" : "Pause schedule";
-                            clicked => { root.toggle-pause(); }
-                        }
-                    }
-                }
-            }
-            Tab {
-                title: "Folders";
-                VerticalLayout {
-                    padding: 16px;
-                    spacing: 12px;
 
-                    Text { text: "Folders to back up"; font-weight: 700; }
-                    ScrollView {
-                        vertical-stretch: 1;
-                        VerticalLayout {
-                            spacing: 4px;
-                            for folder[i] in root.folders: HorizontalLayout {
+                        Label { text: "Folder to back up"; }
+                        source := LineEdit {
+                            placeholder-text: "/home/you/Documents";
+                            enabled: !root.busy;
+                        }
+                        Label { text: "Backup name"; }
+                        name := LineEdit {
+                            placeholder-text: "Documents";
+                            enabled: !root.busy;
+                        }
+
+                        Label { text: "Skip these (optional)"; }
+                        Hint {
+                            text: "A folder skips everything inside it, e.g. ~/.local/share/Steam. Relative paths start from the folder above.";
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            skip := LineEdit {
+                                placeholder-text: "~/.local/share/Steam";
+                                enabled: !root.busy;
+                                horizontal-stretch: 1;
+                                accepted => {
+                                    root.add-exclusion(self.text);
+                                    self.text = "";
+                                }
+                            }
+                            SoftButton {
+                                text: "Add";
+                                enabled: !root.busy && skip.text != "";
+                                clicked => {
+                                    root.add-exclusion(skip.text);
+                                    skip.text = "";
+                                }
+                            }
+                        }
+                        if root.exclusions.length > 0: ListView {
+                            height: min(root.exclusions.length * 34px, 102px);
+                            for ex[i] in root.exclusions: HorizontalLayout {
+                                height: 34px;
                                 spacing: 8px;
                                 Text {
-                                    text: folder;
+                                    text: ex;
+                                    color: Theme.text;
                                     vertical-alignment: center;
                                     overflow: elide;
                                     horizontal-stretch: 1;
                                 }
-                                Button {
+                                SoftButton {
                                     text: "Remove";
-                                    clicked => { root.remove-folder(i); }
+                                    enabled: !root.busy;
+                                    clicked => { root.remove-exclusion(i); }
+                                }
+                            }
+                        }
+
+                        Label { text: "Password"; }
+                        backup-pw := LineEdit {
+                            input-type: password;
+                            placeholder-text: "Password";
+                            enabled: !root.busy;
+                            accepted => {
+                                root.start-backup(source.text, name.text, self.text);
+                                self.text = "";
+                            }
+                        }
+                        Rectangle { height: 6px; }
+                        HorizontalLayout {
+                            alignment: start;
+                            PrimaryButton {
+                                text: "Back up now";
+                                enabled: !root.busy && source.text != "" && backup-pw.text != "";
+                                clicked => {
+                                    root.start-backup(source.text, name.text, backup-pw.text);
+                                    backup-pw.text = "";
                                 }
                             }
                         }
                     }
-                    HorizontalLayout {
-                        alignment: start;
-                        Button {
-                            text: "Add folder…";
-                            clicked => { root.add-folder(); }
+
+                    if root.page == 1: VerticalLayout {
+                        padding: 20px;
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Label {
+                                text: "Your backups";
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            SoftButton {
+                                text: "Refresh";
+                                enabled: !root.busy;
+                                clicked => { root.refresh-backups(); }
+                            }
+                        }
+                        if root.backups.length == 0: Hint { text: "No backups yet. Make one on the Back up page."; }
+                        ListView {
+                            vertical-stretch: 1;
+                            min-height: 100px;
+                            for item[i] in root.backups: Rectangle {
+                                height: 40px;
+                                background: root.selected == i ? Theme.accent-soft : transparent;
+                                border-radius: 8px;
+                                // accent bar on the selected row
+                                Rectangle {
+                                    x: 0;
+                                    width: 4px;
+                                    height: parent.height - 12px;
+                                    border-radius: 2px;
+                                    background: Theme.accent;
+                                    visible: root.selected == i;
+                                }
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 10px;
+                                    spacing: 12px;
+                                    Text {
+                                        text: item.name == "" ? "(unnamed)" : item.name;
+                                        color: Theme.text;
+                                        font-weight: root.selected == i ? 700 : 400;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: item.time + "  ·  " + item.id;
+                                        color: Theme.muted;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.selected = i; }
+                                }
+                            }
+                        }
+                        Label { text: "Restore into (must be an empty folder)"; }
+                        target := LineEdit {
+                            placeholder-text: "/home/you/restored";
+                            enabled: !root.busy;
+                        }
+                        Label { text: "Password"; }
+                        restore-pw := LineEdit {
+                            input-type: password;
+                            placeholder-text: "Password";
+                            enabled: !root.busy;
+                            accepted => {
+                                root.start-restore(root.selected, target.text, self.text);
+                                self.text = "";
+                            }
+                        }
+                        Rectangle { height: 6px; }
+                        HorizontalLayout {
+                            alignment: start;
+                            PrimaryButton {
+                                text: "Restore";
+                                enabled: !root.busy && root.selected >= 0 && target.text != "" && restore-pw.text != "";
+                                clicked => {
+                                    root.start-restore(root.selected, target.text, restore-pw.text);
+                                    restore-pw.text = "";
+                                }
+                            }
                         }
                     }
-
-                    Text { text: "Skip these"; font-weight: 700; }
-                    for preset[i] in root.presets: CheckBox {
-                        text: preset.label;
-                        checked: preset.enabled;
-                        toggled => { root.set-preset(i, self.checked); }
-                    }
-                    Text { text: root.exclusion-summary; wrap: word-wrap; }
                 }
             }
         }
-    }
 
-    if root.unlock-open: Rectangle {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: root.height;
-        background: #000000a0;
-
-        TouchArea { }
-
-        Rectangle {
-            width: min(parent.width - 32px, 380px);
-            height: dialog.preferred-height + 32px;
-            background: #2b2b2b;
-            border-radius: 8px;
-
-            dialog := VerticalLayout {
-                padding: 16px;
-                spacing: 10px;
-
-                Text { text: "Enter password"; font-size: 18px; font-weight: 700; color: white; }
-                Text { text: root.unlock-purpose; color: #cccccc; wrap: word-wrap; }
-                pw := LineEdit {
-                    input-type: password;
-                    placeholder-text: "Password";
-                    accepted => {
-                        root.unlock(self.text);
-                        self.text = "";
-                    }
-                }
-                if root.unlock-error != "": Text { text: root.unlock-error; color: #ff6b6b; wrap: word-wrap; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: end;
-                    Button {
-                        text: "Cancel";
-                        clicked => {
-                            pw.text = "";
-                            root.cancel-unlock();
-                        }
-                    }
-                    Button {
-                        text: "Unlock";
-                        primary: true;
-                        clicked => {
-                            root.unlock(pw.text);
-                            pw.text = "";
-                        }
-                    }
-                }
+        // Status area
+        if root.busy: ProgressIndicator {
+            indeterminate: true;
+        }
+        if root.message != "": Rectangle {
+            height: msg.preferred-height + 24px;
+            background: root.message-is-error ? Theme.err-bg : Theme.ok-bg;
+            msg := Text {
+                x: 20px;
+                y: 12px;
+                width: parent.width - 40px;
+                text: root.message;
+                color: root.message-is-error ? Theme.err-fg : Theme.ok-fg;
+                font-weight: 700;
+                font-size: 13px;
+                wrap: word-wrap;
             }
         }
     }

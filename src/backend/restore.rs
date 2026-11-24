@@ -2,10 +2,10 @@
 use super::types::SymlinkType;
 use super::types::{Manifest, id_to_name};
 use crate::{
-    BackupId, BackupMetadata,
+    BackupMetadata,
     Error::{self, CryptoError},
     Key,
-    backend::{manifest_store::read_manifests, pass_to_key, passwd},
+    backend::{manifest_store::read_manifests, pass_to_key},
 };
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::AeadInOut};
 use std::{
@@ -142,7 +142,9 @@ pub(crate) fn full_restore(
     pass_test_file.read_exact(&mut nonce_internal)?;
     pass_test_file.read_to_end(&mut pass_test_vec)?;
     let cipher = XChaCha20Poly1305::new(&chacha20poly1305::Key::from(key.0));
-    cipher.decrypt_in_place(&XNonce::from(nonce_internal), &[], &mut pass_test_vec)?;
+    cipher
+        .decrypt_in_place(&XNonce::from(nonce_internal), &[], &mut pass_test_vec)
+        .map_err(|_| Error::InvalidPassword)?;
 
     let manifests = read_manifests(backup_id, &key)?;
     restore(

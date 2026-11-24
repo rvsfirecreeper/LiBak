@@ -1,4 +1,4 @@
-use argon2::{Params, PasswordHasher};
+use argon2::Params;
 use rand::random;
 
 use crate::Key;

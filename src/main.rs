@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 slint::include_modules!();
 mod backend;
+mod gui;
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Key([u8; 32]);
 #[derive(Serialize, Deserialize)]
@@ -75,5 +76,5 @@ impl From<chacha20poly1305::Error> for Error {
     }
 }
 fn main() -> Result<(), slint::PlatformError> {
-    AppWindow::new()?.run()
+    gui::run()
 }
