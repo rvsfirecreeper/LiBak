@@ -16,14 +16,14 @@ jobs:
           - arch: x86_64
             os_name: linux
             runner_os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             suffix: ""
 
           # Linux aarch64
           - arch: aarch64
             os_name: linux
-            runner_os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
+            runner_os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
             suffix: ""
 
           # Windows x86_64
@@ -58,24 +58,40 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
+        if: matrix.os_name == 'linux'
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+        if: matrix.os_name == 'linux'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Install cross
-        if: matrix.os_name == 'linux' && matrix.arch == 'aarch64'
-        run: nix develop --command cargo install cross
-
-      - name: Build (cross)
-        if: matrix.os_name == 'linux' && matrix.arch == 'aarch64'
-        run: nix develop --command cross build --release --target ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Build(Penguin)
-        if: "matrix.os_name == 'linux' && matrix.arch != 'aarch64'"
+        if: "matrix.os_name == 'linux'"
         run: nix develop --command cargo build --release --target ${{ matrix.target }}
       - name: Build
         if: "matrix.os_name != 'linux'"
         run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Un-Nix binary (interpreter + rpath)
+        if: "matrix.os_name == 'linux'"
+        run: |
+          BIN=target/${{ matrix.target }}/release/libak
+          if [ "${{ matrix.arch }}" = "aarch64" ]; then
+            INTERP=/lib/ld-linux-aarch64.so.1
+          else
+            INTERP=/lib64/ld-linux-x86-64.so.2
+          fi
+          echo "rpath before: $(nix run nixpkgs#patchelf -- --print-rpath "$BIN")"
+          nix run nixpkgs#patchelf -- --set-interpreter "$INTERP" --remove-rpath "$BIN"
+          echo "needed libs:"
+          nix run nixpkgs#patchelf -- --print-needed "$BIN"
+          if readelf -l "$BIN" | grep -q /nix/store || readelf -d "$BIN" | grep -q /nix/store; then
+            echo "binary still references /nix/store" >&2
+            exit 1
+          fi
 
       - name: Prepare binary
         run: |
