@@ -8,6 +8,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 slint::include_modules!();
 mod backend;
 mod gui;
+mod theme;
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Key([u8; 32]);
 #[derive(Serialize, Deserialize)]

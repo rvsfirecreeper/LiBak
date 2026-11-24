@@ -133,6 +133,9 @@ fn refresh(ui: &AppWindow) {
 
 pub fn run() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
+    if let Some(problem) = crate::theme::apply(&ui) {
+        show_message(&ui, problem, true);
+    }
     refresh(&ui);
     ui.on_refresh_backups({
         let weak = ui.as_weak();
